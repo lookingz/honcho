@@ -142,7 +142,7 @@ SESSION_HISTORY_MAX_TOKENS = 4096
 [dialectic.levels.minimal]
 MAX_TOOL_ITERATIONS = 1
 MAX_OUTPUT_TOKENS = 250
-TOOL_CHOICE = "auto"
+TOOL_CHOICE = "required"
 
 [dialectic.levels.minimal.model_config]
 transport = "openai"
@@ -150,7 +150,7 @@ model = "gpt-5.4-mini"
 
 [dialectic.levels.low]
 MAX_TOOL_ITERATIONS = 5
-TOOL_CHOICE = "auto"
+TOOL_CHOICE = "required"
 
 [dialectic.levels.low.model_config]
 transport = "openai"
