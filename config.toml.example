@@ -66,6 +66,7 @@ OPENAI_API_KEY = "your-api-key-here"
 VECTOR_DIMENSIONS = 1536
 MAX_INPUT_TOKENS = 8192
 MAX_TOKENS_PER_REQUEST = 300000
+MAX_BATCH_SIZE = 2048
 
 [embedding.model_config]
 transport = "openai"
@@ -74,6 +75,16 @@ model = "text-embedding-3-small"
 # Optional module-level endpoint overrides
 # [embedding.model_config.overrides]
 # base_url = "https://embedding-proxy.internal.example/v1"
+# api_key_env = "EMBEDDING_CUSTOM_API_KEY"
+#
+# Qwen + LanceDB example:
+# VECTOR_DIMENSIONS = 1024
+# MAX_BATCH_SIZE = 10
+# [embedding.model_config]
+# transport = "openai"
+# model = "text-embedding-v4"
+# [embedding.model_config.overrides]
+# base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 # api_key_env = "EMBEDDING_CUSTOM_API_KEY"
 
 # Deriver settings
@@ -261,3 +272,8 @@ DIMENSIONS = 1536
 # TURBOPUFFER_REGION = "us-east-1"
 LANCEDB_PATH = "./lancedb_data"
 RECONCILIATION_INTERVAL_SECONDS = 300
+
+# Qwen + LanceDB example:
+# TYPE = "lancedb"
+# MIGRATED = true
+# DIMENSIONS = 1024

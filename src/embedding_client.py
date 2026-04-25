@@ -34,6 +34,7 @@ class _EmbeddingClient:
         vector_dimensions: int,
         max_input_tokens: int,
         max_tokens_per_request: int,
+        max_batch_size: int,
     ):
         self.transport: str = config.transport
         self.model: str = config.model
@@ -53,8 +54,7 @@ class _EmbeddingClient:
             )
             # Gemini has a 2048 token limit
             self.max_embedding_tokens: int = min(max_input_tokens, 2048)
-            # Gemini batch size is not documented, using conservative estimate
-            self.max_batch_size: int = 100
+            self.max_batch_size = max_batch_size
         else:  # openai
             if not config.api_key:
                 raise ValueError("OpenAI API key is required")
@@ -63,7 +63,7 @@ class _EmbeddingClient:
                 base_url=config.base_url,
             )
             self.max_embedding_tokens = max_input_tokens
-            self.max_batch_size = 2048  # OpenAI batch limit
+            self.max_batch_size = max_batch_size
 
         self.encoding: tiktoken.Encoding = tiktoken.get_encoding("o200k_base")
         self.max_embedding_tokens_per_request: int = max_tokens_per_request
@@ -406,6 +406,7 @@ class EmbeddingClient:
                         vector_dimensions=settings.EMBEDDING.VECTOR_DIMENSIONS,
                         max_input_tokens=settings.EMBEDDING.MAX_INPUT_TOKENS,
                         max_tokens_per_request=settings.EMBEDDING.MAX_TOKENS_PER_REQUEST,
+                        max_batch_size=settings.EMBEDDING.MAX_BATCH_SIZE,
                     )
                     self._instance_signature = signature
                     logger.debug(
@@ -429,6 +430,7 @@ class EmbeddingClient:
             settings.EMBEDDING.VECTOR_DIMENSIONS,
             settings.EMBEDDING.MAX_INPUT_TOKENS,
             settings.EMBEDDING.MAX_TOKENS_PER_REQUEST,
+            settings.EMBEDDING.MAX_BATCH_SIZE,
         )
 
     async def embed(self, query: str) -> list[float]:

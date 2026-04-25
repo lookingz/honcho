@@ -21,8 +21,10 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
+    # Persist LanceDB data when VECTOR_STORE_TYPE=lancedb.
+    volumes:
+      - ./lancedb_data:/app/lancedb_data
     # -- Development: mount source for live reload --
-    # volumes:
     #   - .:/app
     #   - venv:/app/.venv
     environment:
@@ -44,8 +46,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Persist LanceDB data when VECTOR_STORE_TYPE=lancedb.
+    volumes:
+      - ./lancedb_data:/app/lancedb_data
     # -- Development: mount source for live reload --
-    # volumes:
     #   - .:/app
     #   - venv:/app/.venv
     environment:

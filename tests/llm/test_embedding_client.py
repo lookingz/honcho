@@ -45,6 +45,7 @@ async def test_openai_embedding_client_uses_configured_model_and_dimensions(
         vector_dimensions=8,
         max_input_tokens=8192,
         max_tokens_per_request=300_000,
+        max_batch_size=2048,
     )
 
     embedding = await client.embed("hello world")
@@ -76,6 +77,7 @@ async def test_openai_embedding_client_rejects_dimension_mismatch(
         vector_dimensions=8,
         max_input_tokens=8192,
         max_tokens_per_request=300_000,
+        max_batch_size=2048,
     )
 
     with pytest.raises(ValueError, match="Embedding dimension mismatch"):
@@ -125,6 +127,7 @@ async def test_gemini_embedding_client_uses_output_dimensionality(
         vector_dimensions=12,
         max_input_tokens=4096,
         max_tokens_per_request=300_000,
+        max_batch_size=100,
     )
 
     embedding = await client.embed("hello world")
@@ -136,4 +139,40 @@ async def test_gemini_embedding_client_uses_output_dimensionality(
             "contents": "hello world",
             "config": {"output_dimensionality": 12},
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_simple_batch_embed_respects_max_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_embeddings = FakeOpenAIEmbeddingsAPI([0.1] * 8)
+
+    class FakeOpenAIClient:
+        def __init__(self, *, api_key: str | None, base_url: str | None) -> None:
+            self.api_key: str | None = api_key
+            self.base_url: str | None = base_url
+            self.embeddings: FakeOpenAIEmbeddingsAPI = fake_embeddings
+
+    monkeypatch.setattr("src.embedding_client.AsyncOpenAI", FakeOpenAIClient)
+
+    client = _EmbeddingClient(
+        EmbeddingModelConfig(
+            transport="openai",
+            model="text-embedding-3-small",
+            api_key="test-key",
+        ),
+        vector_dimensions=8,
+        max_input_tokens=8192,
+        max_tokens_per_request=300_000,
+        max_batch_size=2,
+    )
+
+    embeddings = await client.simple_batch_embed(["a", "b", "c", "d", "e"])
+
+    assert embeddings == [[0.1] * 8] * 5
+    assert fake_embeddings.calls == [
+        {"model": "text-embedding-3-small", "input": ["a", "b"]},
+        {"model": "text-embedding-3-small", "input": ["c", "d"]},
+        {"model": "text-embedding-3-small", "input": ["e"]},
     ]

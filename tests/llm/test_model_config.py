@@ -241,17 +241,26 @@ def test_dream_specialist_model_configs_are_independent() -> None:
     assert dream.INDUCTION_MODEL_CONFIG.thinking_budget_tokens is None
 
 
-def test_app_settings_propagate_embedding_dimensions_to_vector_store() -> None:
+def test_app_settings_propagate_embedding_dimensions_to_vector_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_local_config(monkeypatch)
+    _clear_embedding_vector_env(monkeypatch)
     settings = AppSettings(
-        EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048),
+        EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048, MAX_BATCH_SIZE=10),
         VECTOR_STORE=VectorStoreSettings(TYPE="lancedb", MIGRATED=True),
     )
 
     assert settings.EMBEDDING.VECTOR_DIMENSIONS == 2048
+    assert settings.EMBEDDING.MAX_BATCH_SIZE == 10
     assert settings.VECTOR_STORE.DIMENSIONS == 2048
 
 
-def test_app_settings_require_matching_embedding_and_vector_store_dimensions() -> None:
+def test_app_settings_require_matching_embedding_and_vector_store_dimensions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_local_config(monkeypatch)
+    _clear_embedding_vector_env(monkeypatch)
     with pytest.raises(
         ValueError,
         match=re.escape(
@@ -268,9 +277,11 @@ def test_app_settings_require_matching_embedding_and_vector_store_dimensions() -
         )
 
 
-def test_app_settings_reject_non_1536_dimensions_while_pgvector_or_dual_write_active() -> (
-    None
-):
+def test_app_settings_reject_non_1536_dimensions_while_pgvector_or_dual_write_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_local_config(monkeypatch)
+    _clear_embedding_vector_env(monkeypatch)
     with pytest.raises(
         ValueError,
         match=re.escape("EMBEDDING.VECTOR_DIMENSIONS must remain 1536"),
@@ -353,6 +364,7 @@ def test_env_template_uses_nested_model_config_keys() -> None:
 
     assert "EMBEDDING_MODEL_CONFIG__MODEL" in env_template
     assert "EMBEDDING_VECTOR_DIMENSIONS" in env_template
+    assert "EMBEDDING_MAX_BATCH_SIZE" in env_template
     assert "DERIVER_MODEL_CONFIG__MODEL" in env_template
     assert "DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL" in env_template
     assert "DIALECTIC_LEVELS__minimal__TOOL_CHOICE=auto" in env_template
@@ -375,6 +387,18 @@ def _clear_deriver_env(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(name, raising=False)
 
 
+def _clear_local_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove repository-local TOML settings from unit tests."""
+    monkeypatch.setattr("src.config.TOML_CONFIG", {})
+
+
+def _clear_embedding_vector_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip local embedding/vector-store env overrides from unit tests."""
+    for name in list(os.environ):
+        if name.startswith("EMBEDDING_") or name.startswith("VECTOR_STORE_"):
+            monkeypatch.delenv(name, raising=False)
+
+
 def test_partial_env_override_of_transport_drops_default_thinking_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -390,6 +414,7 @@ def test_partial_env_override_of_transport_drops_default_thinking_params(
     from src.config import DeriverSettings
 
     _clear_deriver_env(monkeypatch)
+    _clear_local_config(monkeypatch)
     # Exercise the @model_validator(mode="before") merge path with a raw dict
     # — pyright can't see through the pre-validator that accepts dict input.
     settings = DeriverSettings(
@@ -415,6 +440,7 @@ def test_partial_env_override_same_transport_keeps_default_thinking_params(
     from src.config import ConfiguredModelSettings, DeriverSettings
 
     _clear_deriver_env(monkeypatch)
+    _clear_local_config(monkeypatch)
 
     def _rich_default() -> ConfiguredModelSettings:
         return ConfiguredModelSettings(
@@ -443,6 +469,7 @@ def test_explicit_thinking_effort_survives_transport_override(
     from src.config import DeriverSettings
 
     _clear_deriver_env(monkeypatch)
+    _clear_local_config(monkeypatch)
     settings = DeriverSettings(
         MODEL_CONFIG={  # pyright: ignore[reportArgumentType]
             "transport": "openai",
@@ -476,6 +503,8 @@ def test_dialectic_level_transport_override_drops_default_thinking_params(
         DialecticLevelSettings,
         DialecticSettings,
     )
+
+    _clear_local_config(monkeypatch)
 
     def _rich_levels() -> dict[str, DialecticLevelSettings]:
         return {
