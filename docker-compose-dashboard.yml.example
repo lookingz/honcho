@@ -1,0 +1,117 @@
+# Honcho Docker Compose with Dashboard
+#
+# Usage:
+#   cp docker-compose-dashboard.yml.example docker-compose-dashboard.yml
+#   cp .env.template .env  # edit with your provider config
+#   docker compose -f docker-compose-dashboard.yml up -d --build
+#
+# By default, ports are bound to 127.0.0.1 (localhost only).
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: honcho-api-1
+    entrypoint: ["sh", "docker/entrypoint.sh"]
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./lancedb_data:/app/lancedb_data
+    environment:
+      - DB_CONNECTION_URI=postgresql+psycopg://postgres:postgres@database:5432/postgres
+      - CACHE_URL=redis://redis:6379/0?suppress=true
+      - CACHE_ENABLED=true
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    networks:
+      - honcho_default
+
+  deriver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/app/.venv/bin/python", "-m", "src.deriver"]
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./lancedb_data:/app/lancedb_data
+    environment:
+      - DB_CONNECTION_URI=postgresql+psycopg://postgres:postgres@database:5432/postgres
+      - CACHE_URL=redis://redis:6379/0?suppress=true
+      - CACHE_ENABLED=true
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    networks:
+      - honcho_default
+
+  dashboard:
+    image: ghcr.io/tolkonepiu/honcho-dashboard:latest
+    container_name: honcho-dashboard
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - HONCHO_BASE_URL=http://honcho-api-1:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - honcho_default
+
+  database:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - honcho_default
+
+  redis:
+    image: redis:8.2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - honcho_default
+
+networks:
+  honcho_default:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redis-data:
+  lancedb_data:
