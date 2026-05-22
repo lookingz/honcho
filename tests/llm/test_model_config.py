@@ -1,5 +1,4 @@
 import os
-import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -256,18 +255,14 @@ def test_app_settings_propagate_embedding_dimensions_to_vector_store(
     assert settings.VECTOR_STORE.DIMENSIONS == 2048
 
 
-def test_app_settings_require_matching_embedding_and_vector_store_dimensions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_local_config(monkeypatch)
-    _clear_embedding_vector_env(monkeypatch)
-    with pytest.raises(
-        ValueError,
-        match=re.escape(
-            "VECTOR_STORE.DIMENSIONS must match EMBEDDING.VECTOR_DIMENSIONS"
-        ),
-    ):
-        AppSettings(
+def test_app_settings_explicit_vector_store_dimensions_warns_and_overrides() -> None:
+    """VECTOR_STORE.DIMENSIONS is deprecated: EMBEDDING.VECTOR_DIMENSIONS wins
+    and the operator gets a DeprecationWarning if they set it explicitly."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        settings = AppSettings(
             EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048),
             VECTOR_STORE=VectorStoreSettings(
                 TYPE="lancedb",
@@ -275,30 +270,47 @@ def test_app_settings_require_matching_embedding_and_vector_store_dimensions(
                 DIMENSIONS=1536,
             ),
         )
+    messages = [
+        str(w.message) for w in captured if issubclass(w.category, DeprecationWarning)
+    ]
+    assert any("VECTOR_STORE_DIMENSIONS is deprecated" in m for m in messages), (
+        f"expected deprecation warning, got {messages!r}"
+    )
+    assert settings.EMBEDDING.VECTOR_DIMENSIONS == 2048
+    assert settings.VECTOR_STORE.DIMENSIONS == 2048, (
+        "EMBEDDING.VECTOR_DIMENSIONS should always overwrite the operator-supplied "
+        "VECTOR_STORE.DIMENSIONS value"
+    )
 
 
-def test_app_settings_reject_non_1536_dimensions_while_pgvector_or_dual_write_active(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_local_config(monkeypatch)
-    _clear_embedding_vector_env(monkeypatch)
-    with pytest.raises(
-        ValueError,
-        match=re.escape("EMBEDDING.VECTOR_DIMENSIONS must remain 1536"),
-    ):
-        AppSettings(
-            EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048),
-            VECTOR_STORE=VectorStoreSettings(TYPE="pgvector", MIGRATED=True),
+def test_app_settings_accepts_non_1536_with_any_vector_store_configuration() -> None:
+    """The dim-vs-MIGRATED guard was removed; the runtime startup schema
+    validator (src/startup/embedding_validator.py) is the new safety net.
+    Construction must succeed for every combination at config time."""
+    from typing import Literal
+
+    combos: list[tuple[Literal["pgvector", "turbopuffer", "lancedb"], bool]] = [
+        ("pgvector", True),
+        ("pgvector", False),
+        ("lancedb", True),
+        ("lancedb", False),
+        ("turbopuffer", True),
+        ("turbopuffer", False),
+    ]
+    for store_type, migrated in combos:
+        # Turbopuffer's model_validator requires TURBOPUFFER_API_KEY whenever
+        # TYPE="turbopuffer"; supply a dummy value so the test exercises the
+        # dim-acceptance path rather than the api-key guard.
+        vs_kwargs: dict[str, Any] = {"TYPE": store_type, "MIGRATED": migrated}
+        if store_type == "turbopuffer":
+            vs_kwargs["TURBOPUFFER_API_KEY"] = "test-key"
+        settings = AppSettings(
+            EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=768),
+            VECTOR_STORE=VectorStoreSettings(**vs_kwargs),
         )
-
-    with pytest.raises(
-        ValueError,
-        match=re.escape("EMBEDDING.VECTOR_DIMENSIONS must remain 1536"),
-    ):
-        AppSettings(
-            EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048),
-            VECTOR_STORE=VectorStoreSettings(TYPE="lancedb", MIGRATED=False),
-        )
+        assert settings.EMBEDDING.VECTOR_DIMENSIONS == 768
+        assert store_type == settings.VECTOR_STORE.TYPE
+        assert settings.VECTOR_STORE.MIGRATED is migrated
 
 
 def test_config_toml_example_uses_nested_model_config_sections() -> None:
@@ -336,17 +348,18 @@ def test_config_toml_example_uses_nested_model_config_sections() -> None:
         }
     )
 
-    # config.toml.example ships the same minimal defaults the app uses:
+    # config.toml.example documents the example operator-facing configuration:
     # transport=openai, model=gpt-5.4-mini across every text-generation
-    # feature, with embeddings on openai/text-embedding-3-small. Asserting
-    # these keeps the example file and the in-code defaults in lockstep.
+    # feature, with embeddings on openai/text-embedding-3-small. The example
+    # intentionally omits per-level TOOL_CHOICE so operators inherit runtime
+    # behavior instead of pinning a choice in the sample file.
     assert deriver_config.transport == "openai"
     assert deriver_config.model == "gpt-5.4-mini"
     assert deriver_config.thinking_budget_tokens is None
     assert minimal_level.MODEL_CONFIG.model == "gpt-5.4-mini"
     assert minimal_level.MODEL_CONFIG.transport == "openai"
-    assert minimal_level.TOOL_CHOICE == "auto"
-    assert low_level.TOOL_CHOICE == "auto"
+    assert minimal_level.TOOL_CHOICE is None
+    assert low_level.TOOL_CHOICE is None
     assert max_level.MODEL_CONFIG.model == "gpt-5.4-mini"
     assert max_level.MODEL_CONFIG.transport == "openai"
     assert max_level.MODEL_CONFIG.thinking_budget_tokens is None
@@ -544,3 +557,51 @@ def test_dialectic_level_transport_override_drops_default_thinking_params(
     assert minimal_mc["model"] == "gpt-4.1-mini"
     assert "thinking_budget_tokens" not in minimal_mc
     assert "thinking_effort" not in minimal_mc
+
+
+def test_dialectic_settings_backfills_missing_levels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Operators only need to override the levels they care about.
+
+    Env-var overrides replace the LEVELS dict wholesale (bypassing the
+    default_factory), so without a backfill the unmentioned levels would be
+    dropped and _validate_all_levels_present would fail.
+    """
+    from src.config import (
+        DialecticSettings,
+        _default_dialectic_levels,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    _clear_local_config(monkeypatch)
+    for key in list(os.environ):
+        if key.startswith("DIALECTIC_LEVELS"):
+            monkeypatch.delenv(key)
+
+    settings = DialecticSettings(
+        LEVELS={  # pyright: ignore[reportArgumentType]
+            "low": {
+                "MODEL_CONFIG": {
+                    "transport": "anthropic",
+                    "model": "claude-haiku-4-5-20251001",
+                    "thinking_budget_tokens": 1024,
+                },
+                "MAX_OUTPUT_TOKENS": 2500,
+            }
+        }
+    )
+
+    assert set(settings.LEVELS.keys()) == {"minimal", "low", "medium", "high", "max"}
+    assert settings.LEVELS["low"].MODEL_CONFIG.transport == "anthropic"
+    assert settings.LEVELS["low"].MODEL_CONFIG.model == "claude-haiku-4-5-20251001"
+    assert settings.LEVELS["low"].MAX_OUTPUT_TOKENS == 2500
+    # Backfilled levels come from _default_dialectic_levels()
+    defaults = _default_dialectic_levels()
+    assert (
+        settings.LEVELS["minimal"].MAX_TOOL_ITERATIONS
+        == defaults["minimal"].MAX_TOOL_ITERATIONS
+    )
+    assert (
+        settings.LEVELS["max"].MAX_TOOL_ITERATIONS
+        == defaults["max"].MAX_TOOL_ITERATIONS
+    )
