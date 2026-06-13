@@ -15,6 +15,7 @@ last unit even when oversized) still surfaces a real cap hit.
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 from unittest.mock import patch
 
@@ -195,3 +196,88 @@ async def test_hit_input_token_cap_fires_even_when_truncate_cant_shrink():
 
     assert isinstance(result, HonchoLLMCallResponse)
     assert result.hit_input_token_cap is True
+
+
+@pytest.mark.asyncio
+async def test_openai_tool_loop_replays_reasoning_content_between_tool_turns():
+    call_messages: list[list[dict[str, Any]]] = []
+
+    def _make_openai_plan() -> AttemptPlan:
+        return AttemptPlan(
+            provider="openai",
+            model="deepseek-v4-flash",
+            client=object(),
+            thinking_budget_tokens=None,
+            reasoning_effort="high",
+            selected_config=None,
+            attempt=1,
+            retry_attempts=1,
+            is_fallback=False,
+        )
+
+    async def _tooling_call(*_args: Any, **kwargs: Any) -> HonchoLLMCallResponse[Any]:
+        call_messages.append(copy.deepcopy(kwargs["messages"]))
+        if len(call_messages) == 1:
+            return HonchoLLMCallResponse(
+                content="Let me check.",
+                input_tokens=10,
+                output_tokens=5,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+                finish_reasons=["tool_calls"],
+                tool_calls_made=[
+                    {"id": "call_1", "name": "lookup", "input": {"q": "hangzhou"}}
+                ],
+                thinking_content="Need tool output before answering.",
+            )
+        return HonchoLLMCallResponse(
+            content="done",
+            input_tokens=10,
+            output_tokens=5,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+            finish_reasons=["stop"],
+            tool_calls_made=[],
+        )
+
+    async def _tool_executor(_name: str, _input: dict[str, Any]) -> str:
+        return "weather-result"
+
+    with patch.object(tool_loop, "honcho_llm_call_inner", new=_tooling_call):
+        result = await execute_tool_loop(
+            prompt="hi",
+            max_tokens=64,
+            messages=[{"role": "user", "content": "weather?"}],
+            tools=[
+                {
+                    "name": "lookup",
+                    "description": "lookup weather",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            tool_choice="required",
+            tool_executor=_tool_executor,
+            max_tool_iterations=5,
+            response_model=None,
+            json_mode=False,
+            temperature=None,
+            stop_seqs=None,
+            verbosity=None,
+            enable_retry=False,
+            retry_attempts=1,
+            max_input_tokens=None,
+            get_attempt_plan=_make_openai_plan,
+            before_retry_callback=lambda _r: None,
+            stream_final=False,
+            telemetry=None,
+        )
+
+    assert isinstance(result, HonchoLLMCallResponse)
+    assert len(call_messages) == 2
+    second_turn_messages = call_messages[1]
+    assistant_message = second_turn_messages[1]
+    assert assistant_message["role"] == "assistant"
+    assert (
+        assistant_message["reasoning_content"] == "Need tool output before answering."
+    )
+    assert assistant_message["tool_calls"][0]["function"]["name"] == "lookup"

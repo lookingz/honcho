@@ -25,6 +25,12 @@ def count_message_tokens(messages: list[dict[str, Any]]) -> int:
         elif isinstance(content, list):
             # Anthropic-style content blocks
             total += estimate_tokens(json.dumps(content))
+        reasoning_content = msg.get("reasoning_content")
+        if isinstance(reasoning_content, str):
+            total += estimate_tokens(reasoning_content)
+        reasoning_details = msg.get("reasoning_details")
+        if reasoning_details:
+            total += estimate_tokens(json.dumps(reasoning_details))
         if "parts" in msg:
             try:
                 total += estimate_tokens(json.dumps(msg["parts"]))

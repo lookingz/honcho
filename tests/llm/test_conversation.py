@@ -3,6 +3,7 @@ from typing import Any
 from src.llm.conversation import (
     _is_tool_result_message,  # pyright: ignore[reportPrivateUsage]
     _is_tool_use_message,  # pyright: ignore[reportPrivateUsage]
+    count_message_tokens,
     truncate_messages_to_fit,
 )
 
@@ -101,3 +102,23 @@ def test_truncate_messages_to_fit_preserves_gemini_tool_pair() -> None:
     # The oldest (bulk-text) message should be dropped; the function_call +
     # function_response pair stays intact together.
     assert truncated == messages[1:]
+
+
+def test_count_message_tokens_includes_openai_reasoning_fields() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "I should call a tool next.",
+            "reasoning_details": [{"type": "reasoning", "content": "tool step"}],
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{}"},
+                }
+            ],
+        }
+    ]
+
+    assert count_message_tokens(messages) > 0
