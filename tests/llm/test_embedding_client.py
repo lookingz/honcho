@@ -395,6 +395,7 @@ async def test_simple_batch_embed_respects_token_budget_per_request(
         vector_dimensions=4,
         max_input_tokens=100,
         max_tokens_per_request=120,
+        max_batch_size=2048,
         send_dimensions=False,
     )
 
@@ -431,6 +432,7 @@ async def test_simple_batch_embed_rejects_oversized_input(
         vector_dimensions=4,
         max_input_tokens=10,
         max_tokens_per_request=1000,
+        max_batch_size=2048,
         send_dimensions=False,
     )
 
@@ -461,6 +463,7 @@ def test_prepare_chunks_returns_ordered_chunks(
         vector_dimensions=4,
         max_input_tokens=10,
         max_tokens_per_request=1000,
+        max_batch_size=2048,
         send_dimensions=False,
     )
 
