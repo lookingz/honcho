@@ -19,9 +19,10 @@ This document is for the local fork workflow, not for upstream contribution.
 
 ### `main`
 
-- Keep as a clean local baseline branch when possible.
-- Do not use it as the primary development branch for domestic LLM API work.
-- Use it only if you later want a separate stable reference line.
+- `main` is now intentionally kept as a clean mirror of upstream `main`.
+- Do not put domestic LLM API adaptations or local-only fixes on `main`.
+- Use it as a reference baseline and as the fork branch that stays aligned with upstream.
+- If GitHub shows "Sync Fork" for `main`, that action should now be safe in principle because `main` no longer carries fork-specific product logic.
 
 ### `main-cn-llm-api`
 
@@ -41,6 +42,24 @@ This document is for the local fork workflow, not for upstream contribution.
 - Merge `upstream/main` into it.
 - Resolve conflicts and run verification there first.
 - Merge it back into `main-cn-llm-api` after validation.
+
+## Current Repository Status
+
+- As of `2026-06-13`, `main` has been reset to a clean upstream mirror.
+- The previous fork-specific `main` history was preserved in backup branch
+  `backup/main-before-upstream-mirror-20260613`.
+- `main-cn-llm-api` remains the only long-term branch for local product behavior,
+  domestic LLM API compatibility, and conflict resolution decisions.
+
+## Why `main` Must Stay Clean
+
+- A dirty fork `main` makes GitHub fork sync confusing because the web UI treats
+  fork-specific commits as conflicts against upstream.
+- A clean `main` gives a stable answer to "what is upstream doing right now?"
+- Keeping all local behavior on `main-cn-llm-api` makes future merges easier to
+  reason about because there is one customization line instead of two.
+- If a local change matters for production, it belongs on `main-cn-llm-api`, not
+  on `main`.
 
 ## Naming Convention
 
@@ -83,6 +102,9 @@ git commit -m "Describe the change"
 git push
 ```
 
+Do not start daily work from `main` unless you intentionally need to inspect the
+latest upstream baseline.
+
 ## Upstream Sync Workflow
 
 Before syncing upstream:
@@ -94,6 +116,8 @@ Recommended sync steps:
 
 ```bash
 git fetch upstream
+git switch main
+git pull --ff-only
 git switch main-cn-llm-api
 git pull --ff-only
 git switch -c sync/upstream-YYYYMMDD
@@ -141,8 +165,10 @@ instead of re-deciding from scratch.
 
 - Do not develop on `temp/*` branches long term.
 - Do not merge upstream directly into a dirty branch.
-- Do not force `main` to mirror `main-cn-llm-api` unless there is a deliberate
-  reason.
+- Do not put fork-only commits on `main`.
+- Do not force `main` to mirror `main-cn-llm-api`.
+- If `main` ever drifts again, back it up first, then restore it to the upstream
+  mirror instead of carrying local fixes there.
 - Prefer one sync branch per upstream merge event.
 - Verify conflict-heavy merges before pushing.
 
@@ -152,6 +178,13 @@ instead of re-deciding from scratch.
 
 ```bash
 git switch main-cn-llm-api
+git pull --ff-only
+```
+
+### Refresh clean `main`
+
+```bash
+git switch main
 git pull --ff-only
 ```
 
