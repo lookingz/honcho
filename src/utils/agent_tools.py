@@ -24,7 +24,12 @@ from src.telemetry.events import (
     emit,
 )
 from src.utils import summarizer
-from src.utils.formatting import format_new_turn_with_timestamp, utc_now_iso
+from src.utils.formatting import (
+    format_datetime_utc,
+    format_new_turn_with_timestamp,
+    parse_datetime_iso,
+    utc_now_iso,
+)
 from src.utils.representation import Representation
 from src.utils.types import ToolResult, embedding_call_purpose, get_current_iteration
 
@@ -1290,6 +1295,68 @@ class ToolContext:
     parent_category: str | None = None  # Parent category for CloudEvents
 
 
+def _normalize_observation_id(obs_id: str) -> str:
+    """Strip the display-format ``id:`` prefix from a model-supplied observation ID.
+
+    Observations are presented to agents as ``[id:xxx]`` (see
+    ``Representation.str_with_ids``), and despite tool-schema instructions to
+    pass the bare ID, models sometimes copy the prefix verbatim. Since document
+    IDs are nanoids whose alphabet includes ``-`` and ``_``, only the ``id:``
+    prefix and surrounding whitespace are stripped — anything more aggressive
+    could mangle legitimate IDs.
+    """
+    obs_id = obs_id.strip()
+    if obs_id.lower().startswith("id:"):
+        obs_id = obs_id[3:]
+    return obs_id.strip()
+
+
+async def _latest_source_timestamp(
+    ctx: ToolContext,
+    observations: list[schemas.ObservationInput],
+) -> str | None:
+    """Latest ``message_created_at`` across all source observations in the batch.
+
+    Dreamer conclusions (deductive/inductive) are derived from existing
+    observations referenced by ``source_ids`` rather than from live messages.
+    Their logical timestamp is the point when the conclusion became possible
+    from its evidence, not when the dreamer happened to run, so we date
+    ``internal_metadata["message_created_at"]`` to the most recent source
+    observation. The physical ``Document.created_at`` column remains the insert
+    time. Returns None if no source_ids resolve to a usable timestamp (caller
+    falls back to now).
+    """
+    source_ids: list[str] = []
+    for obs in observations:
+        if obs.source_ids:
+            source_ids.extend(obs.source_ids)
+    if not source_ids:
+        return None
+
+    latest: datetime | None = None
+    async with tracked_db("create_observations.source_ts", read_only=True) as db:
+        docs = await crud.fetch_documents_by_ids(
+            db,
+            workspace_name=ctx.workspace_name,
+            observer=ctx.observer,
+            observed=ctx.observed,
+            document_ids=list(set(source_ids)),
+        )
+        for doc in docs:
+            raw = doc.internal_metadata.get("message_created_at")
+            if not isinstance(raw, str):
+                continue
+            try:
+                # always tz-aware, so the comparison below can't crash on mixed formats
+                parsed = parse_datetime_iso(raw)
+            except ValueError:
+                continue
+            if latest is None or parsed > latest:
+                latest = parsed
+
+    return format_datetime_utc(latest) if latest is not None else None
+
+
 async def _handle_create_observations_impl(
     ctx: ToolContext,
     tool_input: dict[str, Any],
@@ -1309,7 +1376,15 @@ async def _handle_create_observations_impl(
             obs["level"] = forced_level
         else:
             obs.setdefault("level", default_level)
-
+        # Models sometimes copy the display-format "id:" prefix into source_ids;
+        # normalize so provenance links reference real document IDs.
+        source_ids = obs.get("source_ids")
+        if isinstance(source_ids, list):
+            normalized_source_ids: list[str] = []
+            for source_id in cast(list[Any], source_ids):
+                if isinstance(source_id, str):
+                    normalized_source_ids.append(_normalize_observation_id(source_id))
+            obs["source_ids"] = normalized_source_ids
     # Validate observations individually so valid ones are still processed
     observations: list[schemas.ObservationInput] = []
     validation_failures: list[ObservationFailure] = []
@@ -1344,10 +1419,16 @@ async def _handle_create_observations_impl(
     # Determine message context
     if ctx.current_messages:
         message_ids = [msg.id for msg in ctx.current_messages]
-        message_created_at = str(ctx.current_messages[-1].created_at)
+        # same ISO-8601 Z format as the dreamer path below
+        message_created_at = format_datetime_utc(ctx.current_messages[-1].created_at)
     else:
+        # Dreamer path: no current messages. Backdate the conclusion to the
+        # latest source observation, which is when the inference became possible.
+
         message_ids = []
-        message_created_at = utc_now_iso()
+        message_created_at = (
+            await _latest_source_timestamp(ctx, observations)
+        ) or utc_now_iso()
 
     # Use lock to serialize database writes (prevents concurrent commit issues)
     async with ctx.db_lock:
@@ -2203,6 +2284,7 @@ async def _handle_get_reasoning_chain(
     observation_id = tool_input.get("observation_id")
     if not observation_id:
         return "ERROR: 'observation_id' is required"
+    observation_id = _normalize_observation_id(observation_id)
 
     direction = tool_input.get("direction", "both")
     if direction not in ("premises", "conclusions", "both"):
@@ -2403,6 +2485,10 @@ async def create_tool_executor(
         metadata: dict[str, Any] = {}
         is_error: bool = False
 
+        # Langfuse tool observation; auto-parents under the active step span.
+        # Closed in the finally below with output + level.
+        tool_obs = _begin_tool_observation(tool_name, tool_input)
+
         try:
             handler = _TOOL_HANDLERS.get(tool_name)
             if handler:
@@ -2481,9 +2567,47 @@ async def create_tool_executor(
                 provider_tool_call_id=get_current_provider_tool_call_id(),
             )
 
+            _finish_tool_observation(tool_obs, result_str, is_error)
+
         return result_str
 
     return execute_tool
+
+
+def _begin_tool_observation(tool_name: str, tool_input: dict[str, Any]) -> Any:
+    """Open a non-current Langfuse "tool" observation for one tool execution.
+
+    Auto-parents under the active step span (else standalone). Returns a handle
+    (closed by `_finish_tool_observation`) or None when disabled/setup fails.
+    All tools are ``as_type="tool"`` — they share one generic dispatcher.
+
+    Only fires in legacy *inline* mode. In exporter mode there's no live span
+    context to parent under, so this would emit a rootless tool trace per call;
+    the LangfuseExporter already projects tool spans (from ``output_tool_calls``)
+    nested under the step span, so a live observation here just double-emits.
+    """
+    if not settings.langfuse_inline_enabled:
+        return None
+    try:
+        from langfuse import get_client
+
+        return get_client().start_observation(
+            as_type="tool", name=tool_name, input=tool_input
+        )
+    except Exception:  # pragma: no cover - best-effort telemetry
+        logger.debug("Failed to open Langfuse tool observation", exc_info=True)
+        return None
+
+
+def _finish_tool_observation(tool_obs: Any, result_str: str, is_error: bool) -> None:
+    """Close a Langfuse tool observation opened by `_begin_tool_observation`."""
+    if tool_obs is None:
+        return
+    try:
+        tool_obs.update(output=result_str, level="ERROR" if is_error else None)
+        tool_obs.end()
+    except Exception:  # pragma: no cover - best-effort telemetry
+        logger.debug("Failed to close Langfuse tool observation", exc_info=True)
 
 
 def _emit_agent_tool_call_completed(
