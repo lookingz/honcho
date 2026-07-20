@@ -142,11 +142,11 @@ model = "gpt-5.4-mini"
 
 # Optional fallback model
 # [deriver.model_config.fallback]
-# transport = "anthropic"
-# model = "claude-haiku-4-5"
+# transport = "openai"
+# model = "mimo-v2.5"
 # [deriver.model_config.fallback.overrides]
-# base_url = "https://llm-backup.internal.example/v1"
-# api_key_env = "DERIVER_CUSTOM_BACKUP_API_KEY"
+# base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+# api_key_env = "LLM_BACKUP_OPENAI_API_KEY"
 # [deriver.model_config.overrides.provider_params]
 # verbosity = "low"
 
@@ -200,8 +200,11 @@ transport = "openai"
 model = "gpt-5.4-mini"
 
 # [dialectic.levels.max.model_config.fallback]
-# transport = "gemini"
-# model = "gemini-2.5-pro"
+# transport = "openai"
+# model = "mimo-v2.5-pro"
+# [dialectic.levels.max.model_config.fallback.overrides]
+# base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+# api_key_env = "LLM_BACKUP_OPENAI_API_KEY"
 
 # Summary settings
 [summary]
@@ -218,8 +221,11 @@ model = "gpt-5.4-mini"
 # thinking_budget_tokens = 1024
 
 # [summary.model_config.fallback]
-# transport = "anthropic"
-# model = "claude-haiku-4-5"
+# transport = "openai"
+# model = "mimo-v2.5"
+# [summary.model_config.fallback.overrides]
+# base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+# api_key_env = "LLM_BACKUP_OPENAI_API_KEY"
 
 # Dream settings
 [dream]
