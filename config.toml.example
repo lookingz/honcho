@@ -287,7 +287,7 @@ TYPE = "pgvector"
 # Migration flag: set to true when migration from pgvector is complete
 MIGRATED = false
 NAMESPACE = "honcho"
-# DIMENSIONS is deprecated; embedding.vector_dimensions is authoritative.
+# Embedding dimensions are configured via embedding.vector_dimensions.
 # TURBOPUFFER_API_KEY = "your-turbopuffer-api-key"
 # TURBOPUFFER_REGION = "us-east-1"
 LANCEDB_PATH = "./lancedb_data"
@@ -296,4 +296,3 @@ RECONCILIATION_INTERVAL_SECONDS = 300
 # Qwen + LanceDB example:
 # TYPE = "lancedb"
 # MIGRATED = true
-# DIMENSIONS = 1024
