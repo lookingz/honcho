@@ -302,12 +302,17 @@ def test_app_settings_propagate_embedding_dimensions_to_vector_store(
     _clear_local_config(monkeypatch)
     _clear_embedding_vector_env(monkeypatch)
     settings = AppSettings(
-        EMBEDDING=EmbeddingSettings(VECTOR_DIMENSIONS=2048, MAX_BATCH_SIZE=10),
+        EMBEDDING=EmbeddingSettings(
+            VECTOR_DIMENSIONS=2048,
+            MODEL_CONFIG=ConfiguredEmbeddingModelSettings(
+                max_batch_size=10,
+            ),
+        ),
         VECTOR_STORE=VectorStoreSettings(TYPE="lancedb", MIGRATED=True),
     )
 
     assert settings.EMBEDDING.VECTOR_DIMENSIONS == 2048
-    assert settings.EMBEDDING.MAX_BATCH_SIZE == 10
+    assert settings.EMBEDDING.MODEL_CONFIG.max_batch_size == 10
     assert settings.VECTOR_STORE.DIMENSIONS == 2048
 
 
@@ -433,7 +438,7 @@ def test_env_template_uses_nested_model_config_keys() -> None:
 
     assert "EMBEDDING_MODEL_CONFIG__MODEL" in env_template
     assert "EMBEDDING_VECTOR_DIMENSIONS" in env_template
-    assert "EMBEDDING_MAX_BATCH_SIZE" in env_template
+    assert "EMBEDDING_MODEL_CONFIG__MAX_BATCH_SIZE" in env_template
     assert "DERIVER_MODEL_CONFIG__MODEL" in env_template
     assert "DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL" in env_template
     assert "DIALECTIC_LEVELS__minimal__TOOL_CHOICE=auto" in env_template
