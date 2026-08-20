@@ -63,8 +63,9 @@ COPY --chown=app:app migrations/ /app/migrations/
 COPY --chown=app:app scripts/ /app/scripts/
 COPY --chown=app:app docker/ /app/docker/
 COPY --chown=app:app alembic.ini /app/alembic.ini
-# Copy config files - this will copy config.toml if it exists, and config.toml.example
-COPY --chown=app:app config.toml* /app/
+# Copy the example only. Local config.toml is dockerignored so secrets
+# are not baked into images; production bind-mounts its own file.
+COPY --chown=app:app config.toml.example /app/
 
 # Switch to non-root user
 USER app

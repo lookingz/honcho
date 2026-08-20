@@ -187,6 +187,10 @@ config.json
 config.toml
 .aider*
 
+# Local IDE metadata and private operator skills
+.cursor/
+skills/upgrade-honcho/
+
 CRUSH.md
 .crush/
 

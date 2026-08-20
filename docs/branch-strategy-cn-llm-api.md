@@ -207,6 +207,18 @@ git push
 git branch -d sync/upstream-YYYYMMDD
 ```
 
+## Local operator upgrade skill
+
+The host-specific upgrade and deploy runbook is not in this repository.
+It lives in the operator's personal Cursor skills directory:
+
+```text
+~/.cursor/skills/upgrade-honcho
+```
+
+Do not commit that directory, production host names, IPs, or SSH accounts
+into git.
+
 ## Optional Future Adjustment
 
 If `main` becomes unnecessary later, it can remain as a passive baseline branch.
