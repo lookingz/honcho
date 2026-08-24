@@ -209,15 +209,16 @@ git branch -d sync/upstream-YYYYMMDD
 
 ## Local operator upgrade skill
 
-The host-specific upgrade and deploy runbook is not in this repository.
-It lives in the operator's personal Cursor skills directory:
+The host-specific upgrade and deploy runbook is gitignored, same pattern as
+hindsight's `.claude/skills/hs-upgrade/`. Canonical path:
 
 ```text
-~/.cursor/skills/upgrade-honcho
+skills/upgrade-honcho
 ```
 
-Do not commit that directory, production host names, IPs, or SSH accounts
-into git.
+`.claude/skills` and `.agents/skills` are symlinks to `skills/`, so Claude
+Code, Cursor, and Codex agents in this workspace can all load it. Do not
+commit that directory, production host names, IPs, or SSH accounts.
 
 ## Optional Future Adjustment
 

@@ -189,6 +189,9 @@ config.toml
 
 # Local IDE metadata and private operator skills
 .cursor/
+# Private upgrade skill - local only, never publish (same pattern as
+# hindsight .claude/skills/hs-upgrade/). Visible via .claude/skills and
+# .agents/skills, which symlink to skills/.
 skills/upgrade-honcho/
 
 CRUSH.md
