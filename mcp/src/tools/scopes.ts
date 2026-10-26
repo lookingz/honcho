@@ -3,7 +3,7 @@ import { Scope } from "@honcho-ai/sdk";
 import type { Honcho } from "@honcho-ai/sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "../types.js";
-import { textResult, errorResult, workspaceIdSchema } from "../types.js";
+import { textResult, workspaceIdSchema, failedResult } from "../types.js";
 
 // Match the SDK's scope ID rules; the constructor bypasses honcho.scope() validation.
 const scopeIdSchema = z
@@ -35,6 +35,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "list_scopes",
     {
+      annotations: {
+        title: "List Scopes",
+        readOnlyHint: true,
+      },
       description: [
         "List the scopes in a workspace (paginated).",
         "A scope is a named set of sessions that acts as a recall boundary: chat with scope=<name> answers only from that scope's sessions.",
@@ -60,9 +64,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           pages: page.pages,
         });
       } catch (e) {
-        return errorResult(
-          `Failed to list scopes: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to list scopes`, e);
       }
     },
   );
@@ -71,6 +73,11 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "create_scope",
     {
+      annotations: {
+        title: "Create Scope",
+        readOnlyHint: false,
+        destructiveHint: false,
+      },
       description: [
         "Get or create a scope with the given ID.",
         "A scope is a named set of sessions that acts as a recall boundary. Optional metadata (e.g. a label, description, example queries) is stored with it.",
@@ -82,7 +89,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           .string()
           .describe("Scope name, unique within the workspace (e.g. 'therapy', 'honcho-core')."),
         metadata: z
-          .record(z.string(), z.unknown())
+          .looseObject({})
           .optional()
           .describe("Optional metadata to store with the scope."),
       },
@@ -98,9 +105,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           created_at: scope.createdAt,
         });
       } catch (e) {
-        return errorResult(
-          `Failed to create scope: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to create scope`, e);
       }
     },
   );
@@ -109,6 +114,11 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "add_sessions_to_scope",
     {
+      annotations: {
+        title: "Add Sessions to Scope",
+        readOnlyHint: false,
+        destructiveHint: false,
+      },
       description: [
         "Add sessions to a scope. Every session must already exist; re-adding a member is a no-op.",
         "Sessions that already hold messages are backfilled into the scope asynchronously — poll get_scope_status before relying on scoped recall for them.",
@@ -130,9 +140,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         await scope.addSessions(session_ids);
         return textResult({ scope_id, added: session_ids.length });
       } catch (e) {
-        return errorResult(
-          `Failed to add sessions to scope: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to add sessions to scope`, e);
       }
     },
   );
@@ -141,6 +149,11 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "remove_session_from_scope",
     {
+      annotations: {
+        title: "Remove Session from Scope",
+        readOnlyHint: false,
+        destructiveHint: true,
+      },
       description: [
         "Remove a session from a scope.",
         "Conclusions derived while it was a member are reconciled out asynchronously; the session itself is untouched.",
@@ -157,9 +170,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         await scope.removeSession(session_id);
         return textResult({ scope_id, removed: session_id });
       } catch (e) {
-        return errorResult(
-          `Failed to remove session from scope: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to remove session from scope`, e);
       }
     },
   );
@@ -168,6 +179,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "get_scope_status",
     {
+      annotations: {
+        title: "Get Scope Status",
+        readOnlyHint: true,
+      },
       description: [
         "Get backfill progress for a scope, keyed by session ID.",
         "Each entry is pending, completed, or failed. Only sessions with a backfill enqueued appear, so an empty result means nothing is outstanding.",
@@ -194,9 +209,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         }
         return textResult({ scope_id, ...counts, sessions });
       } catch (e) {
-        return errorResult(
-          `Failed to get scope status: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to get scope status`, e);
       }
     },
   );
@@ -205,6 +218,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "get_scope_sessions",
     {
+      annotations: {
+        title: "Get Scope Sessions",
+        readOnlyHint: true,
+      },
       description: [
         "List the sessions that belong to a scope (paginated).",
         "Use this to see which conversations a recall boundary covers.",
@@ -229,9 +246,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           pages: page.pages,
         });
       } catch (e) {
-        return errorResult(
-          `Failed to list scope sessions: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to list scope sessions`, e);
       }
     },
   );

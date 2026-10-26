@@ -1,13 +1,18 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "../types.js";
-import { textResult, errorResult, workspaceIdSchema } from "../types.js";
+import { textResult, workspaceIdSchema, failedResult } from "../types.js";
 
 export function register(server: McpServer, ctx: ToolContext) {
   // ── create_peer ─────────────────────────────────────────────────────
   server.registerTool(
     "create_peer",
     {
+      annotations: {
+        title: "Create Peer",
+        readOnlyHint: false,
+        destructiveHint: false,
+      },
       description: [
         "Get or create a peer with the given ID.",
         "Use this to register a new participant (user or agent) in the workspace.",
@@ -33,9 +38,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         });
         return textResult({ peer_id: peer.id, configuration: peer.configuration });
       } catch (e) {
-        return errorResult(
-          `Failed to create peer: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to create peer`, e);
       }
     },
   );
@@ -44,18 +47,27 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "list_peers",
     {
+      annotations: {
+        title: "List Peers",
+        readOnlyHint: true,
+      },
       description: [
         "List peers in the given workspace (paginated).",
         "Use this to discover which users and agents exist.",
-        "Returns peer IDs with pagination metadata.",
+        "Returns peer IDs with pagination metadata; pass page/size to walk past the first page.",
       ].join("\n"),
       inputSchema: {
         workspace_id: workspaceIdSchema(ctx),
+        page: z.number().int().min(1).optional().describe("Page number (1-indexed)."),
+        size: z.number().int().min(1).max(100).optional().describe("Results per page (max 100)."),
+        reverse: z.boolean().optional().describe("Newest first when true."),
       },
     },
-    async ({ workspace_id }) => {
+    async ({ workspace_id, page: pageNum, size, reverse }) => {
       try {
-        const page = await ctx.clientFor(workspace_id).peers();
+        const page = await ctx
+          .clientFor(workspace_id)
+          .peers({ page: pageNum, size, reverse });
         return textResult({
           peers: page.items.map((p) => ({ id: p.id })),
           total: page.total,
@@ -63,9 +75,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           pages: page.pages,
         });
       } catch (e) {
-        return errorResult(
-          `Failed to list peers: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to list peers`, e);
       }
     },
   );
@@ -74,6 +84,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "chat",
     {
+      annotations: {
+        title: "Ask About a Peer",
+        readOnlyHint: true,
+      },
       description: [
         "Ask a natural-language question about ONE peer and get an answer from Honcho's reasoning system.",
         "Requires `peer_id`. Answers from that peer's representation only — not the rest of the workspace.",
@@ -144,15 +158,21 @@ export function register(server: McpServer, ctx: ToolContext) {
           const result = await peer.chat(query, options);
           return textResult(result ?? "None");
         }
-        const { content, evidence } = await peer.chat(query, {
+        const response = await peer.chat(query, {
           ...options,
           includeEvidence: true,
         });
+        // An SDK older than 2.5.0 ignores includeEvidence and resolves to the
+        // bare answer string, which destructures to no content and no evidence.
+        if (typeof response === "string" || response === null) {
+          throw new Error(
+            "this server's Honcho SDK does not support include_evidence (needs @honcho-ai/sdk 2.5.0+)",
+          );
+        }
+        const { content, evidence } = response;
         return textResult({ content: content ?? "None", evidence });
       } catch (e) {
-        return errorResult(
-          `Chat failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Chat failed`, e);
       }
     },
   );
@@ -161,6 +181,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "get_peer_card",
     {
+      annotations: {
+        title: "Get Peer Card",
+        readOnlyHint: true,
+      },
       description: [
         "Get the peer card — a compact set of biographical facts about a peer.",
         "Use this when you need a quick summary of who someone is.",
@@ -183,9 +207,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         const card = await peer.getCard(target_peer_id);
         return textResult(card ?? "No peer card found.");
       } catch (e) {
-        return errorResult(
-          `Failed to get peer card: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to get peer card`, e);
       }
     },
   );
@@ -194,6 +216,11 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "set_peer_card",
     {
+      annotations: {
+        title: "Set Peer Card",
+        readOnlyHint: false,
+        destructiveHint: true,
+      },
       description: [
         "Set or update the peer card — a list of biographical facts about a peer.",
         "Use this to manually establish or correct facts about a peer.",
@@ -219,9 +246,7 @@ export function register(server: McpServer, ctx: ToolContext) {
         const result = await peer.setCard(peer_card, target_peer_id);
         return textResult(result ?? "Peer card set successfully");
       } catch (e) {
-        return errorResult(
-          `Failed to set peer card: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to set peer card`, e);
       }
     },
   );
@@ -230,6 +255,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "get_peer_context",
     {
+      annotations: {
+        title: "Get Peer Context",
+        readOnlyHint: true,
+      },
       description: [
         "Get comprehensive context for a peer — combines their representation (conclusions) and peer card.",
         "Use this when you need the full picture of what Honcho knows about someone.",
@@ -273,9 +302,7 @@ export function register(server: McpServer, ctx: ToolContext) {
           peer_card: context.peerCard,
         });
       } catch (e) {
-        return errorResult(
-          `Failed to get peer context: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to get peer context`, e);
       }
     },
   );
@@ -284,6 +311,10 @@ export function register(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     "get_representation",
     {
+      annotations: {
+        title: "Get Peer Representation",
+        readOnlyHint: true,
+      },
       description: [
         "Get the formatted representation for a peer — a text summary built from their conclusions.",
         "Use this when you want the textual representation without the peer card.",
@@ -300,6 +331,19 @@ export function register(server: McpServer, ctx: ToolContext) {
           .string()
           .optional()
           .describe("Optional: scope to a specific session."),
+        scope: z
+          .union([z.string(), z.array(z.string()).max(100)])
+          .optional()
+          .describe(
+            "Optional: confine the representation to a scope. A single scope name reads that scope's own reasoned view (all conclusion levels). A list of scope names is an allowlist: explicit conclusions from the union of their sessions only.",
+          ),
+        sessions: z
+          .array(z.string())
+          .max(1000)
+          .optional()
+          .describe(
+            "Optional: allowlist of session IDs to confine the representation to (explicit conclusions only). Use for an ad hoc boundary without provisioning a scope.",
+          ),
         search_query: z
           .string()
           .optional()
@@ -315,6 +359,8 @@ export function register(server: McpServer, ctx: ToolContext) {
       peer_id,
       target_peer_id,
       session_id,
+      scope,
+      sessions,
       search_query,
       max_conclusions,
     }) => {
@@ -323,14 +369,14 @@ export function register(server: McpServer, ctx: ToolContext) {
         const rep = await peer.representation({
           target: target_peer_id,
           session: session_id,
+          scope,
+          sessions,
           searchQuery: search_query,
           maxConclusions: max_conclusions,
         });
         return textResult(rep);
       } catch (e) {
-        return errorResult(
-          `Failed to get representation: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        return failedResult(ctx, `Failed to get representation`, e);
       }
     },
   );

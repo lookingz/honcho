@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.7.0] - 2026-10-20
+
+### Added
+
+- `uid` on `Peer`, `Session` and the `Honcho` client (the workspace), plus on `PeerResponse`, `SessionResponse` and `WorkspaceResponse`: the immutable identifier the server assigns, next to the client-chosen `id`. Set from any API response that returns the object, and `undefined` before the first fetch or against servers that don't return it (#1394)
+
+## [2.6.0] - 2026-10-07
+
+### Added
+
+- `customInstructions` on workspace and session configuration (the shared fallback) and on the `summary`, `dream`, and `peerCard` sections, plus a new `dialectic` section (`DialecticConfig`) with its own `customInstructions`. Requires Honcho v3.3.0+ (#1303)
+
+## [2.5.1] - 2026-09-22
+
+### Added
+
+- `observer_id` and `observed_id` on `EvidenceObservation`, so evidence from workspace chat says which peer pair each conclusion belongs to. Requires Honcho v3.2.1+ (#1193)
+
+### Changed
+
+- `Conclusion.sourceIds` is `[]` rather than `null` for explicit conclusions when talking to Honcho v3.2.1+. The type still admits `null` for older servers (#1193)
+
 ## [2.5.0] - 2026-09-15
 
 ### Added

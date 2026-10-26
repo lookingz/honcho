@@ -9,6 +9,96 @@ This package versions independently of the Honcho API, `@honcho-ai/sdk`, and hos
 
 ## [Unreleased]
 
+### Security
+
+- The Docker image now builds on Bun 1.4.4 (was 1.2), the first Bun that
+  rejects certificates from the compromised eMudhra intermediates. Rebuild
+  self-hosted images and run the stdio host on Bun 1.4.4 or newer.
+  mcp.honcho.dev runs on Cloudflare Workers and is unaffected.
+
+## [3.2.0] - 2026-10-20
+
+### Added
+
+- A caller-set `X-Honcho-Plugin` header is forwarded to the Honcho API as the
+  plugin identity, with the host appended in parentheses
+  (`cursor-honcho/0.2.0 (Cursor/1.0.0)`). Integrations that configure a
+  connection, and the per-client configs in the docs, can now name themselves;
+  before, the Worker discarded the header and recorded only the `User-Agent`.
+- `X-Honcho-Plugin` is allowed through CORS on the Worker and the HTTP server.
+
+Nothing is required: a connection that sends neither header is recorded exactly
+as before.
+
+### Fixed
+
+- An expired or revoked OAuth token now returns HTTP 401 (`invalid_token`)
+  instead of a tool error, so clients refresh it rather than showing Honcho as
+  signed out after an hour. Tool calls now respond with a single JSON body
+  instead of an SSE stream. API key errors are unchanged.
+- A request carrying an expired or unknown `mcp-session-id` returns HTTP 404
+  instead of 400, the Streamable HTTP signal for a client to start a new
+  session. A request with no session header at all still returns 400.
+- `bun run deploy` and `bun run deploy:staging` reinstall from the lockfile and
+  typecheck before deploying. wrangler bundles whatever is in `node_modules`, so a
+  checkout with a stale install shipped the Worker against `@honcho-ai/sdk` 2.2.0.
+  `workspace_chat`, the scope tools, `get_conclusions` and `get_derived_conclusions`
+  failed; `chat` with `include_evidence` returned `{"content":"None"}`; and `scope` /
+  `sessions` recall bounds and conclusion attribution were silently dropped.
+- `chat` with `include_evidence` reports an error when the server's Honcho SDK
+  is older than 2.5.0, instead of answering `{"content":"None"}`. An older SDK
+  drops the option and returns the bare answer.
+
+## [3.1.0] - 2026-10-07
+
+### Added
+
+- Optional Sentry error reporting for the Worker, HTTP, and stdio hosts, enabled by
+  setting `SENTRY_DSN`. Unset, it is a no-op.
+
+### Fixed
+
+- Every tool that writes sets `readOnlyHint: false` explicitly. Leaving it unset let
+  clients that default a missing hint to read-only treat write tools as reads (#1262)
+
+## [3.0.2] - 2026-09-29
+
+### Added
+
+- The remaining read tools take the scope options the API and SDKs accept
+  (Honcho v3.1.0+), so a client can use scopes end to end over MCP.
+  `create_session` takes `scopes`, `get_representation` takes `scope` or
+  `sessions`, and `search` takes `scope` (rejected alongside `session_id`).
+  `get_session_context` takes `peer_target`, `peer_perspective`, `scope`, and
+  `limit_to_session`, and returns `peer_representation` and `peer_card` when a
+  target is given.
+
+## [3.0.1] - 2026-09-22
+
+### Added
+
+- `list_peers` takes `page`, `size` (max 100) and `reverse`, so a client can
+  walk past the first page of peers.
+- Every tool carries MCP annotations: a title, and `readOnlyHint` or
+  `destructiveHint`, so hosts can label tools and tell reads from writes.
+
+### Changed
+
+- The server instructions describe two modes. Recall mode only reads
+  (`chat`, `workspace_chat`, `search`, and the other read tools) and is the
+  default. Memory-store mode sets up sessions and records messages, and agents
+  are told to use it only when the user asks for the conversation to be
+  recorded. The per-tool listings are gone, since tool descriptions already
+  carry them.
+
+### Fixed
+
+- `chat` and `workspace_chat` no longer fail when the answer takes more than
+  10 seconds on the HTTP host (Bun's idle timeout dropped the connection) or
+  more than 60 seconds on any host (the SDK timed out and retried the chat).
+  Honcho API requests now time out after 5 minutes, configurable with
+  `HONCHO_TIMEOUT_MS`.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
