@@ -278,6 +278,9 @@ async def test_openai_tool_loop_replays_reasoning_content_between_tool_turns():
             max_input_tokens=None,
             get_attempt_plan=_make_openai_plan,
             before_retry_callback=lambda _r: None,
+            retry_condition=llm_retry_condition(
+                can_fall_back=False, retry_attempts=1, model="deepseek-v4-flash"
+            ),
             stream_final=False,
             telemetry=None,
         )
