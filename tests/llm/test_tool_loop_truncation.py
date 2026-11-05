@@ -23,6 +23,7 @@ import pytest
 
 from src.llm import tool_loop
 from src.llm.errors import llm_retry_condition
+from src.llm.messages import AIMessage, ModelOrigin, ReasoningPart, ToolCall
 from src.llm.runtime import AttemptPlan
 from src.llm.tool_loop import execute_tool_loop
 from src.llm.types import HonchoLLMCallResponse
@@ -239,6 +240,24 @@ async def test_openai_tool_loop_replays_reasoning_content_between_tool_turns():
                     {"id": "call_1", "name": "lookup", "input": {"q": "hangzhou"}}
                 ],
                 thinking_content="Need tool output before answering.",
+                message=AIMessage(
+                    text="Let me check.",
+                    tool_calls=[
+                        ToolCall(id="call_1", name="lookup", input={"q": "hangzhou"})
+                    ],
+                    reasoning=[
+                        ReasoningPart(
+                            kind="openai_reasoning_content",
+                            payload={"text": "Need tool output before answering."},
+                            origin=ModelOrigin(
+                                transport="openai", model="deepseek-v4-flash"
+                            ),
+                        )
+                    ],
+                    origin=ModelOrigin(
+                        transport="openai", model="deepseek-v4-flash"
+                    ),
+                ),
             )
         return HonchoLLMCallResponse(
             content="done",
@@ -289,8 +308,10 @@ async def test_openai_tool_loop_replays_reasoning_content_between_tool_turns():
     assert len(call_messages) == 2
     second_turn_messages = call_messages[1]
     assistant_message = second_turn_messages[1]
-    assert assistant_message["role"] == "assistant"
+    assert isinstance(assistant_message, AIMessage)
+    assert assistant_message.role == "assistant"
     assert (
-        assistant_message["reasoning_content"] == "Need tool output before answering."
+        assistant_message.reasoning[0].payload["text"]
+        == "Need tool output before answering."
     )
-    assert assistant_message["tool_calls"][0]["function"]["name"] == "lookup"
+    assert assistant_message.tool_calls[0].name == "lookup"
